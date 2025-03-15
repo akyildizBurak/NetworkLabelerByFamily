@@ -1,0 +1,31 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        
+        {
+            "name": "Debug NetworkLabeler (Civil 3D)",
+            "type": "coreclr",
+            "request": "attach",
+            "processName": "acad",
+            "justMyCode": true,
+            "preLaunchTask": "build",
+            "sourceFileMap": {
+                "C:\\Program Files\\Autodesk\\AutoCAD 2024": "${workspaceFolder}"
+            }
+        },
+        {
+            "name": "Debug NetworkLabeler (Standalone)",
+            "type": "coreclr",
+            "request": "launch",
+            "preLaunchTask": "build",
+            "program": "${workspaceFolder}/bin/Debug/net48/NetworkLabeler.exe",
+            "args": [],
+            "cwd": "${workspaceFolder}",
+            "stopAtEntry": false,
+            "console": "internalConsole",
+            "env": {
+                "ASPNETCORE_ENVIRONMENT": "Development"
+            }
+        }
+    ]
+} 

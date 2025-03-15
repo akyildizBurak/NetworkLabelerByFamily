@@ -1,0 +1,11 @@
+{
+  "version": 2,
+  "dgSpecHash": "8h8J/5E1e38=",
+  "success": true,
+  "projectFilePath": "C:\\Users\\akyil\\Desktop\\NetworkLabelerByFamily\\NetworkLabeler.csproj",
+  "expectedPackageFiles": [
+    "C:\\Users\\akyil\\.nuget\\packages\\microsoft.netframework.referenceassemblies\\1.0.3\\microsoft.netframework.referenceassemblies.1.0.3.nupkg.sha512",
+    "C:\\Users\\akyil\\.nuget\\packages\\microsoft.netframework.referenceassemblies.net48\\1.0.3\\microsoft.netframework.referenceassemblies.net48.1.0.3.nupkg.sha512"
+  ],
+  "logs": []
+}
