@@ -1,17 +1,17 @@
 {
   "format": 1,
   "restore": {
-    "C:\\Users\\akyil\\OneDrive\\_Work\\infoSources\\Civil Apps\\NetworkLabelerByFamily\\NetworkLabeler.csproj": {}
+    "C:\\Users\\akyil\\Desktop\\NetworkLabelerByFamily\\NetworkLabeler.csproj": {}
   },
   "projects": {
-    "C:\\Users\\akyil\\OneDrive\\_Work\\infoSources\\Civil Apps\\NetworkLabelerByFamily\\NetworkLabeler.csproj": {
+    "C:\\Users\\akyil\\Desktop\\NetworkLabelerByFamily\\NetworkLabeler.csproj": {
       "version": "1.0.0",
       "restore": {
-        "projectUniqueName": "C:\\Users\\akyil\\OneDrive\\_Work\\infoSources\\Civil Apps\\NetworkLabelerByFamily\\NetworkLabeler.csproj",
+        "projectUniqueName": "C:\\Users\\akyil\\Desktop\\NetworkLabelerByFamily\\NetworkLabeler.csproj",
         "projectName": "NetworkLabeler",
-        "projectPath": "C:\\Users\\akyil\\OneDrive\\_Work\\infoSources\\Civil Apps\\NetworkLabelerByFamily\\NetworkLabeler.csproj",
+        "projectPath": "C:\\Users\\akyil\\Desktop\\NetworkLabelerByFamily\\NetworkLabeler.csproj",
         "packagesPath": "C:\\Users\\akyil\\.nuget\\packages\\",
-        "outputPath": "C:\\Users\\akyil\\OneDrive\\_Work\\infoSources\\Civil Apps\\NetworkLabelerByFamily\\obj\\",
+        "outputPath": "C:\\Users\\akyil\\Desktop\\NetworkLabelerByFamily\\obj\\",
         "projectStyle": "PackageReference",
         "configFilePaths": [
           "C:\\Users\\akyil\\AppData\\Roaming\\NuGet\\NuGet.Config"

@@ -5,7 +5,8 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:local="clr-namespace:NetworkLabeler"
         mc:Ignorable="d"
-        Title="Network Labeler" Height="450" Width="800">
+        Title="Network Labeler" Height="450" Width="800"
+        x:Name="window">
     <Window.Resources>
         <local:CountToEnabledConverter x:Key="CountToEnabledConverter"/>
     </Window.Resources>
@@ -13,23 +14,43 @@
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
-            <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
         <!-- Network Selection -->
         <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,10">
             <TextBlock Text="Network:" VerticalAlignment="Center" Margin="0,0,10,0"/>
             <ComboBox x:Name="NetworkSelect" Width="200" Margin="0,0,10,0" 
-                     SelectionChanged="NetworkSelect_SelectionChanged"/>
+                      SelectionChanged="NetworkSelect_SelectionChanged"
+                      Text="Select a Network"/>
             <Button Content="Select by Pick" Click="SelectByPick_Click" Width="100"/>
             <Button Content="Apply Styles" Click="ApplyStyle_Click" Width="100" Margin="10,0,0,0"/>
+            <StackPanel Orientation="Vertical" Margin="10,0,0,0">
+                <RadioButton x:Name="RbSwapExisting" Content="Replace Existing Labels" IsChecked="True" Margin="0,0,0,5" GroupName="ApplyMode"/>
+                <RadioButton x:Name="RbAddNew" Content="Add New Labels" GroupName="ApplyMode"/>
+            </StackPanel>
         </StackPanel>
 
         <!-- Part Families and Label Styles -->
         <DataGrid Grid.Row="1" x:Name="PartFamiliesGrid" AutoGenerateColumns="False" IsReadOnly="False">
             <DataGrid.Columns>
+                <DataGridTemplateColumn Header="Select" Width="Auto">
+                    <DataGridTemplateColumn.CellTemplate>
+                        <DataTemplate>
+                            <CheckBox IsChecked="{Binding IsSelected, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
+                        </DataTemplate>
+                    </DataGridTemplateColumn.CellTemplate>
+                </DataGridTemplateColumn>
                 <DataGridTextColumn Header="Part Family" Binding="{Binding Name}" Width="2*" IsReadOnly="True"/>
                 <DataGridTextColumn Header="Part Count" Binding="{Binding Count}" Width="Auto" IsReadOnly="True"/>
+                <DataGridTemplateColumn Header="Current Label Styles on Drawing" Width="2*">
+                    <DataGridTemplateColumn.CellTemplate>
+                        <DataTemplate>
+                            <ComboBox ItemsSource="{Binding CurrentStylesList}"
+                                      SelectedItem="{Binding CurrentSelectedStyle, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                      Width="Auto"/>
+                        </DataTemplate>
+                    </DataGridTemplateColumn.CellTemplate>
+                </DataGridTemplateColumn>
                 <DataGridTemplateColumn Header="Label Style" Width="3*">
                     <DataGridTemplateColumn.CellTemplate>
                         <DataTemplate>
@@ -41,23 +62,5 @@
                 </DataGridTemplateColumn>
             </DataGrid.Columns>
         </DataGrid>
-
-        <!-- Debug Panel -->
-        <StackPanel Grid.Row="2" Margin="0,10,0,0">
-            <TextBlock Text="Debug Info:" FontWeight="Bold"/>
-            <ItemsControl ItemsSource="{Binding ElementName=PartFamiliesGrid, Path=Items}">
-                <ItemsControl.ItemTemplate>
-                    <DataTemplate>
-                        <StackPanel Orientation="Horizontal" Margin="0,2">
-                            <TextBlock Text="{Binding Name}" Width="150"/>
-                            <TextBlock Text=" - Styles: "/>
-                            <TextBlock Text="{Binding LabelStyles.Count}"/>
-                            <TextBlock Text=" Selected: "/>
-                            <TextBlock Text="{Binding SelectedLabelStyle}"/>
-                        </StackPanel>
-                    </DataTemplate>
-                </ItemsControl.ItemTemplate>
-            </ItemsControl>
-        </StackPanel>
     </Grid>
-</Window> 
+</Window>
