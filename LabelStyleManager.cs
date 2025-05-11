@@ -223,7 +223,7 @@ namespace NetworkLabeler
             _labelStyleSelections[familyName] = labelStyleName;
         }
 
-        public void ApplyLabelStyle(Part part, string labelStyleName)
+        public void ApplyLabelStyle(Part part, string labelStyleName, bool replaceExisting = true)
         {
             using (var tr = Application.DocumentManager.MdiActiveDocument.Database.TransactionManager.StartTransaction())
             {
@@ -232,38 +232,64 @@ namespace NetworkLabeler
                     if (part is Pipe pipe)
                     {
                         var pipeLabelStyles = _civilDoc.Styles.LabelStyles.PipeLabelStyles;
-                        var styleList = new ArrayList();
-                        ListRoot(pipeLabelStyles, styleList);
-                        foreach (StyleInfo styleInfo in styleList)
+                        var styleId = GetStyleIdByName(pipeLabelStyles, labelStyleName);
+                        if (styleId != ObjectId.Null)
                         {
-                            if (styleInfo.name == labelStyleName)
+                            if (replaceExisting)
                             {
-                                var styleId = GetStyleIdByName(pipeLabelStyles, labelStyleName);
-                                if (styleId != ObjectId.Null)
+                                // Modify existing labels
+                                var labelIds = pipe.GetLabelIds();
+                                if (labelIds != null)
                                 {
-                                    PipeLabel.Create(pipe.ObjectId, 0.5, styleId);
+                                    foreach (ObjectId labelId in labelIds)
+                                    {
+                                        if (!labelId.IsNull && !labelId.IsErased)
+                                        {
+                                            var label = tr.GetObject(labelId, OpenMode.ForWrite) as Label;
+                                            if (label != null)
+                                            {
+                                                label.StyleId = styleId;
+                                            }
+                                        }
+                                    }
                                 }
-                                break;
+                            }
+                            else
+                            {
+                                // Add new label at default location
+                                PipeLabel.Create(pipe.ObjectId, 0.5, styleId);
                             }
                         }
                     }
                     else if (part is Structure structure)
                     {
                         var structureLabelStyles = _civilDoc.Styles.LabelStyles.StructureLabelStyles;
-                        var styleList = new ArrayList();
-                        ListRoot(structureLabelStyles, styleList);
-                        foreach (StyleInfo styleInfo in styleList)
+                        var styleId = GetStyleIdByName(structureLabelStyles, labelStyleName);
+                        if (styleId != ObjectId.Null)
                         {
-                            if (styleInfo.name == labelStyleName)
+                            if (replaceExisting)
                             {
-                                var styleId = GetStyleIdByName(structureLabelStyles, labelStyleName);
-                                if (styleId != ObjectId.Null)
+                                // Modify existing labels
+                                var labelIds = structure.GetLabelIds();
+                                if (labelIds != null)
                                 {
-                                    // Get the structure's location for the label
-                                    var structureLocation = structure.Location;
-                                    StructureLabel.Create(structure.ObjectId, styleId, structureLocation);
+                                    foreach (ObjectId labelId in labelIds)
+                                    {
+                                        if (!labelId.IsNull && !labelId.IsErased)
+                                        {
+                                            var label = tr.GetObject(labelId, OpenMode.ForWrite) as Label;
+                                            if (label != null)
+                                            {
+                                                label.StyleId = styleId;
+                                            }
+                                        }
+                                    }
                                 }
-                                break;
+                            }
+                            else
+                            {
+                                // Add new label at default location
+                                StructureLabel.Create(structure.ObjectId, styleId, structure.Position);
                             }
                         }
                     }
@@ -309,6 +335,218 @@ namespace NetworkLabeler
                 }
             }
             return ObjectId.Null;
+        }
+
+        public string GetCurrentLabelStyle(Pipe pipe)
+        {
+            try
+            {
+                if (pipe == null)
+                    return null;
+
+                var labelIds = pipe.GetLabelIds();
+                if (labelIds == null || labelIds.Count == 0)
+                    return null;
+
+                var styles = new HashSet<string>();  // Use HashSet to avoid duplicates
+                using (var tr = pipe.Database.TransactionManager.StartTransaction())
+                {
+                    foreach (ObjectId labelId in labelIds)
+                    {
+                        if (!labelId.IsNull && !labelId.IsErased)
+                        {
+                            var label = tr.GetObject(labelId, OpenMode.ForRead) as Label;
+                            if (label != null)
+                            {
+                                var style = tr.GetObject(label.StyleId, OpenMode.ForRead) as LabelStyle;
+                                if (style != null)
+                                {
+                                    styles.Add(style.Name);
+                                }
+                            }
+                        }
+                    }
+                    tr.Commit();
+                }
+                return styles.Count > 0 ? string.Join(", ", styles.OrderBy(s => s)) : null;
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError("Error getting current pipe label style", ex);
+                return null;
+            }
+        }
+
+        public string GetCurrentLabelStyle(Structure structure)
+        {
+            try
+            {
+                if (structure == null)
+                    return null;
+
+                var labelIds = structure.GetLabelIds();
+                if (labelIds == null || labelIds.Count == 0)
+                    return null;
+
+                var styles = new HashSet<string>();  // Use HashSet to avoid duplicates
+                using (var tr = structure.Database.TransactionManager.StartTransaction())
+                {
+                    foreach (ObjectId labelId in labelIds)
+                    {
+                        if (!labelId.IsNull && !labelId.IsErased)
+                        {
+                            var label = tr.GetObject(labelId, OpenMode.ForRead) as Label;
+                            if (label != null)
+                            {
+                                var style = tr.GetObject(label.StyleId, OpenMode.ForRead) as LabelStyle;
+                                if (style != null)
+                                {
+                                    styles.Add(style.Name);
+                                }
+                            }
+                        }
+                    }
+                    tr.Commit();
+                }
+                return styles.Count > 0 ? string.Join(", ", styles.OrderBy(s => s)) : null;
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError("Error getting current structure label style", ex);
+                return null;
+            }
+        }
+
+        public void ReplaceSpecificLabelStyle(Part part, string currentStyleName, string newStyleName)
+        {
+            using (var tr = Application.DocumentManager.MdiActiveDocument.Database.TransactionManager.StartTransaction())
+            {
+                try
+                {
+                    if (part is Pipe pipe)
+                    {
+                        var pipeLabelStyles = _civilDoc.Styles.LabelStyles.PipeLabelStyles;
+                        var currentStyleId = GetStyleIdByName(pipeLabelStyles, currentStyleName);
+                        var newStyleId = GetStyleIdByName(pipeLabelStyles, newStyleName);
+
+                        if (currentStyleId != ObjectId.Null && newStyleId != ObjectId.Null)
+                        {
+                            var labelIds = pipe.GetLabelIds();
+                            if (labelIds != null)
+                            {
+                                foreach (ObjectId labelId in labelIds)
+                                {
+                                    if (!labelId.IsNull && !labelId.IsErased)
+                                    {
+                                        var label = tr.GetObject(labelId, OpenMode.ForWrite) as Label;
+                                        if (label != null && label.StyleId == currentStyleId)
+                                        {
+                                            label.StyleId = newStyleId;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    else if (part is Structure structure)
+                    {
+                        var structureLabelStyles = _civilDoc.Styles.LabelStyles.StructureLabelStyles;
+                        var currentStyleId = GetStyleIdByName(structureLabelStyles, currentStyleName);
+                        var newStyleId = GetStyleIdByName(structureLabelStyles, newStyleName);
+
+                        if (currentStyleId != ObjectId.Null && newStyleId != ObjectId.Null)
+                        {
+                            var labelIds = structure.GetLabelIds();
+                            if (labelIds != null)
+                            {
+                                foreach (ObjectId labelId in labelIds)
+                                {
+                                    if (!labelId.IsNull && !labelId.IsErased)
+                                    {
+                                        var label = tr.GetObject(labelId, OpenMode.ForWrite) as Label;
+                                        if (label != null && label.StyleId == currentStyleId)
+                                        {
+                                            label.StyleId = newStyleId;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    tr.Commit();
+                }
+                catch (Exception ex)
+                {
+                    tr.Abort();
+                    throw;
+                }
+            }
+        }
+
+        public void DeleteSpecificLabelStyle(Part part, string styleName)
+        {
+            using (var tr = Application.DocumentManager.MdiActiveDocument.Database.TransactionManager.StartTransaction())
+            {
+                try
+                {
+                    if (part is Pipe pipe)
+                    {
+                        var pipeLabelStyles = _civilDoc.Styles.LabelStyles.PipeLabelStyles;
+                        var styleId = GetStyleIdByName(pipeLabelStyles, styleName);
+
+                        if (styleId != ObjectId.Null)
+                        {
+                            var labelIds = pipe.GetLabelIds();
+                            if (labelIds != null)
+                            {
+                                foreach (ObjectId labelId in labelIds)
+                                {
+                                    if (!labelId.IsNull && !labelId.IsErased)
+                                    {
+                                        var label = tr.GetObject(labelId, OpenMode.ForWrite) as Label;
+                                        if (label != null && label.StyleId == styleId)
+                                        {
+                                            // Erase the label
+                                            label.Erase();
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    else if (part is Structure structure)
+                    {
+                        var structureLabelStyles = _civilDoc.Styles.LabelStyles.StructureLabelStyles;
+                        var styleId = GetStyleIdByName(structureLabelStyles, styleName);
+
+                        if (styleId != ObjectId.Null)
+                        {
+                            var labelIds = structure.GetLabelIds();
+                            if (labelIds != null)
+                            {
+                                foreach (ObjectId labelId in labelIds)
+                                {
+                                    if (!labelId.IsNull && !labelId.IsErased)
+                                    {
+                                        var label = tr.GetObject(labelId, OpenMode.ForWrite) as Label;
+                                        if (label != null && label.StyleId == styleId)
+                                        {
+                                            // Erase the label
+                                            label.Erase();
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    tr.Commit();
+                }
+                catch (Exception ex)
+                {
+                    tr.Abort();
+                    throw;
+                }
+            }
         }
     }
 

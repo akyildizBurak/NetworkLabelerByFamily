@@ -5,6 +5,7 @@ using System.ComponentModel;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Interop;
 using System.Linq;
 using System.Runtime.InteropServices;
 using Autodesk.AutoCAD.ApplicationServices;
@@ -26,9 +27,15 @@ namespace NetworkLabeler
     {
         private string _familyName;
         private string _selectedStyle;
+        private string _currentStyle;
         private ObservableCollection<string> _availableLabelStyles;
         private bool _isPipe;
         private int _partCount;
+        private HashSet<string> _currentStyles = new HashSet<string>();
+        private bool _isSelected;
+        private List<Part> _parts = new List<Part>();
+        private string _currentSelectedStyle = "No Label";
+        private ObservableCollection<string> _currentStylesList = new ObservableCollection<string> { "No Label" };
 
         public string Name
         {
@@ -50,23 +57,55 @@ namespace NetworkLabeler
             }
         }
 
-        public string SelectedLabelStyle
-        {
-            get => _selectedStyle;
+        private ObservableCollection<string> _labelStyles;
+        public ObservableCollection<string> LabelStyles 
+        { 
+            get 
+            {
+                if (_labelStyles == null)
+                {
+                    _labelStyles = new ObservableCollection<string> { "Select New Style..." };
+                }
+                
+                // Add "Delete Style" option for multiple styles
+                if (_labelStyles.Count > 1)
+                {
+                    if (!_labelStyles.Contains("Delete Style"))
+                    {
+                        _labelStyles.Add("Delete Style");
+                    }
+                }
+                
+                return _labelStyles;
+            }
             set
             {
-                _selectedStyle = value;
-                OnPropertyChanged(nameof(SelectedLabelStyle));
+                _labelStyles = value;
+                OnPropertyChanged(nameof(LabelStyles));
             }
         }
 
-        public ObservableCollection<string> LabelStyles
+        private string _selectedLabelStyle = "Select New Style...";
+        public string SelectedLabelStyle
         {
-            get => _availableLabelStyles;
+            get => _selectedLabelStyle;
             set
             {
-                _availableLabelStyles = value;
-                OnPropertyChanged(nameof(LabelStyles));
+                if (_selectedLabelStyle != value)
+                {
+                    _selectedLabelStyle = value;
+                    OnPropertyChanged(nameof(SelectedLabelStyle));
+                }
+            }
+        }
+
+        public string CurrentStyle
+        {
+            get => _currentStyle;
+            set
+            {
+                _currentStyle = value;
+                OnPropertyChanged(nameof(CurrentStyle));
             }
         }
 
@@ -80,6 +119,139 @@ namespace NetworkLabeler
             }
         }
 
+        public bool IsSelected
+        {
+            get => _isSelected;
+            set
+            {
+                _isSelected = value;
+                OnPropertyChanged(nameof(IsSelected));
+            }
+        }
+
+        public List<Part> Parts
+        {
+            get => _parts;
+            set
+            {
+                _parts = value;
+                OnPropertyChanged(nameof(Parts));
+            }
+        }
+
+        public HashSet<string> CurrentStyles
+        {
+            get => _currentStyles;
+            set
+            {
+                _currentStyles = value ?? new HashSet<string>();
+                UpdateCurrentStyleString();
+                OnPropertyChanged(nameof(CurrentStyles));
+            }
+        }
+
+        public ObservableCollection<string> CurrentStylesList
+        {
+            get => _currentStylesList;
+            set
+            {
+                _currentStylesList = value;
+                OnPropertyChanged(nameof(CurrentStylesList));
+            }
+        }
+
+        public string CurrentSelectedStyle
+        {
+            get => _currentSelectedStyle;
+            set
+            {
+                _currentSelectedStyle = value;
+                OnPropertyChanged(nameof(CurrentSelectedStyle));
+            }
+        }
+
+        public void UpdateCurrentStyleString()
+        {
+            var styles = _currentStyles.Where(s => !string.IsNullOrEmpty(s)).OrderBy(s => s).ToList();
+            
+            // Update CurrentStyle string
+            CurrentStyle = styles.Count > 0 
+                ? string.Join(", ", styles)
+                : "No Label";
+            
+            // Update CurrentStylesList
+            CurrentStylesList.Clear();
+            
+            if (styles.Count == 0)
+            {
+                // No styles at all
+                CurrentStylesList.Add("No Label");
+                CurrentSelectedStyle = "No Label";
+            }
+            else if (styles.Count == 1)
+            {
+                // Only one style, preselect it
+                CurrentStylesList.Add(styles[0]);
+                CurrentSelectedStyle = styles[0];
+            }
+            else
+            {
+                // Multiple styles
+                CurrentStylesList.Add("Select Style...");
+                CurrentStylesList.Add("All Styles");
+                
+                // Add individual styles
+                foreach (var style in styles)
+                {
+                    CurrentStylesList.Add(style);
+                }
+                
+                // Default to "Select Style..."
+                CurrentSelectedStyle = "Select Style...";
+            }
+
+            OnPropertyChanged(nameof(CurrentStylesList));
+            OnPropertyChanged(nameof(CurrentSelectedStyle));
+        }
+
+        public void AddCurrentStyle(string style)
+        {
+            if (!string.IsNullOrEmpty(style))
+            {
+                // Split comma-separated styles and trim whitespace
+                var stylesToAdd = style
+                    .Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries)
+                    .Select(s => s.Trim())
+                    .Where(s => !string.IsNullOrEmpty(s));
+
+                bool stylesAdded = false;
+                foreach (var individualStyle in stylesToAdd)
+                {
+                    // Ensure we don't add duplicate styles
+                    if (!_currentStyles.Contains(individualStyle))
+                    {
+                        _currentStyles.Add(individualStyle);
+                        stylesAdded = true;
+                    }
+                }
+
+                // Update only if new styles were added
+                if (stylesAdded)
+                {
+                    UpdateCurrentStyleString();
+                }
+            }
+        }
+
+        public void AddPart(Part part)
+        {
+            if (part != null && !_parts.Contains(part))
+            {
+                _parts.Add(part);
+                Count = _parts.Count;
+            }
+        }
+
         public event PropertyChangedEventHandler PropertyChanged;
         public virtual void OnPropertyChanged(string propertyName)
         {
@@ -90,11 +262,13 @@ namespace NetworkLabeler
     /// <summary>
     /// Interaction logic for MainWindow.xaml
     /// </summary>
-    public partial class MainWindow : System.Windows.Window
+    public partial class MainWindow : Window
     {
         private readonly LabelStyleManager _labelStyleManager;
         private readonly CivilDocument _civilDoc;
         private readonly ObservableCollection<PartFamilyData> _partFamilies;
+        private readonly Document _acadDoc;
+        private IntPtr _acadWindowHandle;
 
         public MainWindow()
         {
@@ -102,7 +276,22 @@ namespace NetworkLabeler
             {
                 Logger.Log("Starting MainWindow initialization");
                 
-                // Initialize collections first
+                // Store the active document reference first
+                _acadDoc = AcadApplication.DocumentManager.MdiActiveDocument;
+                if (_acadDoc == null)
+                {
+                    throw new SystemException("No active AutoCAD document found. Please open a drawing first.");
+                }
+                Logger.Log("Active AutoCAD document found");
+
+                // Get AutoCAD window handle
+                _acadWindowHandle = _acadDoc.Window.Handle;
+
+                // Set window ownership before initializing components
+                WindowInteropHelper helper = new WindowInteropHelper(this);
+                helper.Owner = _acadWindowHandle;
+
+                // Initialize collections
                 _partFamilies = new ObservableCollection<PartFamilyData>();
                 Logger.Log("Part families collection initialized");
 
@@ -114,14 +303,6 @@ namespace NetworkLabeler
                     Logger.Log("PartFamiliesGrid ItemsSource set");
                 }
                 Logger.Log("MainWindow UI components initialized");
-                
-                // Get the active Civil 3D document
-                var acDoc = AcadApplication.DocumentManager.MdiActiveDocument;
-                if (acDoc == null)
-                {
-                    throw new SystemException("No active AutoCAD document found. Please open a drawing first.");
-                }
-                Logger.Log("Active AutoCAD document found");
 
                 _civilDoc = CivilApplication.ActiveDocument;
                 if (_civilDoc == null)
@@ -139,9 +320,9 @@ namespace NetworkLabeler
                 Logger.Log("Label style manager initialized");
                 
                 // Load saved label style selections
-                if (acDoc.Name != null)
+                if (_acadDoc.Name != null)
                 {
-                    _labelStyleManager.LoadSelections(acDoc.Name);
+                    _labelStyleManager.LoadSelections(_acadDoc.Name);
                     Logger.Log("Loaded saved label style selections");
                 }
 
@@ -165,8 +346,16 @@ namespace NetworkLabeler
                     "Initialization Error", 
                     MessageBoxButton.OK, 
                     MessageBoxImage.Error);
-                Close(); // Close the window if initialization fails
+                Close();
             }
+        }
+
+        protected override void OnSourceInitialized(EventArgs e)
+        {
+            base.OnSourceInitialized(e);
+            // Make sure window stays visible but doesn't block AutoCAD
+            this.Topmost = false;
+            this.ShowInTaskbar = true;
         }
 
         private void LoadNetworks()
@@ -223,16 +412,9 @@ namespace NetworkLabeler
                 if (NetworkSelect != null)
                 {
                     NetworkSelect.ItemsSource = networks;
+                    // Add a default "Select a Network" item
+                    networks.Insert(0, "Select a Network");
                     NetworkSelect.SelectedIndex = 0;
-                }
-                
-                if (networks.Count > 0)
-                {
-                    var selectedNetwork = GetNetworkByName(networks[0]);
-                    if (!selectedNetwork.IsNull)
-                    {
-                        LoadPartFamilies(selectedNetwork);
-                    }
                 }
             }
             catch (SystemException ex)
@@ -282,7 +464,16 @@ namespace NetworkLabeler
 
         private void NetworkSelect_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
-            if (NetworkSelect.SelectedItem is string networkName)
+            // Clear part families if no network is selected
+            if (_partFamilies != null)
+            {
+                _partFamilies.Clear();
+            }
+
+            // Only proceed if a valid network is selected (not the default "Select a Network")
+            if (NetworkSelect.SelectedItem is string networkName && 
+                !string.IsNullOrWhiteSpace(networkName) && 
+                networkName != "Select a Network")
             {
                 var networkId = GetNetworkByName(networkName);
                 if (!networkId.IsNull)
@@ -362,7 +553,17 @@ namespace NetworkLabeler
                 catch (SystemException ex)
                 {
                     Logger.LogError("Error clearing part families", ex);
-                    throw;
+                    // Try direct add as fallback
+                    try
+                    {
+                        _partFamilies.Clear();
+                        Logger.Log("Cleared existing part families (fallback)");
+                    }
+                    catch (SystemException addEx)
+                    {
+                        Logger.LogError($"Failed to clear part families", addEx);
+                        throw; // Re-throw if we really can't clear the collection
+                    }
                 }
 
                 var partsByFamily = new Dictionary<string, PartFamilyData>();
@@ -384,12 +585,12 @@ namespace NetworkLabeler
 
                 // Get pipes
                 Logger.Log("Getting pipe IDs...");
-                var pipes = network.GetPipeIds();
-                Logger.Log($"Found {(pipes?.Count ?? 0)} pipes");
+                var pipeIds = network.GetPipeIds();
+                Logger.Log($"Found {(pipeIds?.Count ?? 0)} pipes");
                 
-                if (pipes != null)
+                if (pipeIds != null)
                 {
-                    foreach (ObjectId pipeId in pipes)
+                    foreach (ObjectId pipeId in pipeIds)
                     {
                         if (!pipeId.IsNull && !pipeId.IsErased)
                         {
@@ -407,27 +608,48 @@ namespace NetworkLabeler
                                         Logger.Log($"Retrieved saved style for {familyName}: {savedStyle ?? "none"}");
                                         
                                         var styles = new ObservableCollection<string>(pipeStyles);
+                                        styles.Insert(0, "Select New Style...");
                                         var selectedStyle = savedStyle;
                                         if (string.IsNullOrEmpty(selectedStyle) || !styles.Contains(selectedStyle))
                                         {
                                             selectedStyle = styles.FirstOrDefault();
                                         }
 
+                                        // Get current style from the pipe
+                                        string currentStyle = _labelStyleManager.GetCurrentLabelStyle(pipe);
+                                        Logger.Log($"Current style for pipe family {familyName}: {currentStyle ?? "none"}");
+
                                         var newFamily = new PartFamilyData
                                         {
                                             Name = familyName,
                                             LabelStyles = styles,
                                             SelectedLabelStyle = selectedStyle,
+                                            CurrentStyle = currentStyle ?? "No Label",
+                                            CurrentStyles = new HashSet<string>(),  // Initialize empty set
                                             IsPipe = true,
-                                            Count = 1
+                                            Count = 1,
+                                            IsSelected = true // Set selected by default
                                         };
 
+                                        if (!string.IsNullOrEmpty(currentStyle))
+                                        {
+                                            newFamily.AddCurrentStyle(currentStyle);
+                                        }
+
+                                        newFamily.AddPart(pipe);
                                         partsByFamily[familyName] = newFamily;
                                         AddToPartFamilies(newFamily);
                                     }
                                     else
                                     {
                                         partsByFamily[familyName].Count++;
+                                        // Update current styles
+                                        string currentStyle = _labelStyleManager.GetCurrentLabelStyle(pipe);
+                                        if (!string.IsNullOrEmpty(currentStyle))
+                                        {
+                                            partsByFamily[familyName].AddCurrentStyle(currentStyle);
+                                        }
+                                        partsByFamily[familyName].AddPart(pipe);
                                     }
                                 }
                             }
@@ -460,27 +682,48 @@ namespace NetworkLabeler
                                         Logger.Log($"Retrieved saved style for {familyName}: {savedStyle ?? "none"}");
                                         
                                         var styles = new ObservableCollection<string>(structureStyles);
+                                        styles.Insert(0, "Select New Style...");
                                         var selectedStyle = savedStyle;
                                         if (string.IsNullOrEmpty(selectedStyle) || !styles.Contains(selectedStyle))
                                         {
                                             selectedStyle = styles.FirstOrDefault();
                                         }
 
+                                        // Get current style from the structure
+                                        string currentStyle = _labelStyleManager.GetCurrentLabelStyle(structure);
+                                        Logger.Log($"Current style for structure family {familyName}: {currentStyle ?? "none"}");
+
                                         var newFamily = new PartFamilyData
                                         {
                                             Name = familyName,
                                             LabelStyles = styles,
                                             SelectedLabelStyle = selectedStyle,
+                                            CurrentStyle = currentStyle ?? "No Label",
+                                            CurrentStyles = new HashSet<string>(),  // Initialize empty set
                                             IsPipe = false,
-                                            Count = 1
+                                            Count = 1,
+                                            IsSelected = true // Set selected by default
                                         };
 
+                                        if (!string.IsNullOrEmpty(currentStyle))
+                                        {
+                                            newFamily.AddCurrentStyle(currentStyle);
+                                        }
+
+                                        newFamily.AddPart(structure);
                                         partsByFamily[familyName] = newFamily;
                                         AddToPartFamilies(newFamily);
                                     }
                                     else
                                     {
                                         partsByFamily[familyName].Count++;
+                                        // Update current styles
+                                        string currentStyle = _labelStyleManager.GetCurrentLabelStyle(structure);
+                                        if (!string.IsNullOrEmpty(currentStyle))
+                                        {
+                                            partsByFamily[familyName].AddCurrentStyle(currentStyle);
+                                        }
+                                        partsByFamily[familyName].AddPart(structure);
                                     }
                                 }
                             }
@@ -538,120 +781,122 @@ namespace NetworkLabeler
         {
             try
             {
-                var doc = Autodesk.AutoCAD.ApplicationServices.Application.DocumentManager.MdiActiveDocument;
-                if (doc == null)
+                Logger.Log("Starting ApplyStyle_Click...");
+                var selectedNetwork = NetworkSelect.SelectedItem as string;
+                if (selectedNetwork == null)
                 {
-                    MessageBox.Show("No active document found.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                    MessageBox.Show("Please select a network first.");
                     return;
                 }
 
-                var db = doc.Database;
-                using (var tr = db.TransactionManager.StartTransaction())
+                bool replaceExisting = RbSwapExisting.IsChecked ?? true;
+                int updatedCount = 0;
+                int totalSelected = 0;
+
+                // Use AutoCAD's document lock
+                using (DocumentLock docLock = _acadDoc.LockDocument(DocumentLockMode.Write, "Applying Label Styles", "Updating labels...", false))
                 {
-                    try
+                    foreach (var familyData in _partFamilies)
                     {
-                        Logger.Log("Starting to apply label styles...");
+                        if (!familyData.IsSelected) continue;
+                        totalSelected++;
 
-                        // Save selected styles before applying
-                        foreach (var family in _partFamilies)
+                        // Skip if no label style is selected or is the placeholder
+                        if (string.IsNullOrEmpty(familyData.SelectedLabelStyle) || 
+                            familyData.SelectedLabelStyle == "Select New Style...")
                         {
-                            if (!string.IsNullOrEmpty(family.SelectedLabelStyle))
+                            Logger.Log($"No label style selected for family {familyData.Name} - skipping");
+                            continue;
+                        }
+
+                        // Handle "Delete Style" option
+                        if (familyData.SelectedLabelStyle == "Delete Style")
+                        {
+                            // Ensure a current style is selected for deletion
+                            if (string.IsNullOrEmpty(familyData.CurrentSelectedStyle) || 
+                                familyData.CurrentSelectedStyle == "Select Style..." ||
+                                familyData.CurrentSelectedStyle == "No Label")
                             {
-                                _labelStyleManager.SetSelectedLabelStyle(family.Name, family.SelectedLabelStyle);
-                                Logger.Log($"Saved style {family.SelectedLabelStyle} for family {family.Name}");
+                                Logger.Log($"No current style selected for deletion in family {familyData.Name} - skipping");
+                                continue;
+                            }
+
+                            // Delete the selected current style from parts
+                            foreach (var part in familyData.Parts)
+                            {
+                                // Delete labels with the selected current style
+                                _labelStyleManager.DeleteSpecificLabelStyle(part, familyData.CurrentSelectedStyle);
+                                updatedCount++;
+                            }
+
+                            // Remove the deleted style from current styles
+                            familyData.CurrentStyles.Remove(familyData.CurrentSelectedStyle);
+
+                            // Reset current style selection
+                            familyData.CurrentSelectedStyle = "Select Style...";
+
+                            // Update the current style string to reflect changes
+                            familyData.UpdateCurrentStyleString();
+
+                            continue;
+                        }
+
+                        // For "Add New Labels", process ALL parts in the selected family
+                        if (!replaceExisting)
+                        {
+                            foreach (var part in familyData.Parts)
+                            {
+                                _labelStyleManager.ApplyLabelStyle(part, familyData.SelectedLabelStyle, false);
+                                updatedCount++;
                             }
                         }
-                        
-                        // Save to file
-                        if (doc.Name != null)
+                        // For "Replace Existing Labels", use current style filtering
+                        else
                         {
-                            _labelStyleManager.SaveSelections(doc.Name);
-                            Logger.Log("Saved label style selections to file");
-                        }
-
-                        // Get the current network
-                        if (NetworkSelect.SelectedItem == null)
-                        {
-                            throw new SystemException("No network selected.");
-                        }
-
-                        var networkId = GetNetworkByName(NetworkSelect.SelectedItem.ToString());
-                        if (networkId.IsNull)
-                        {
-                            throw new SystemException("Selected network not found.");
-                        }
-
-                        var network = tr.GetObject(networkId, OpenMode.ForRead) as Network;
-                        if (network == null)
-                        {
-                            throw new SystemException("Failed to access network object.");
-                        }
-
-                        Logger.Log($"Processing network: {network.Name}");
-                        int labelCount = 0;
-
-                        // Process pipes
-                        var pipeIds = network.GetPipeIds();
-                        if (pipeIds != null)
-                        {
-                            foreach (ObjectId pipeId in pipeIds)
+                            // If "All Styles" is selected, process all parts
+                            if (familyData.CurrentSelectedStyle == "All Styles")
                             {
-                                if (!pipeId.IsNull && !pipeId.IsErased)
+                                foreach (var part in familyData.Parts)
                                 {
-                                    var pipe = tr.GetObject(pipeId, OpenMode.ForWrite) as Pipe;
-                                    if (pipe != null)
+                                    _labelStyleManager.ApplyLabelStyle(part, familyData.SelectedLabelStyle, true);
+                                    updatedCount++;
+                                }
+                            }
+                            // Process only parts with the selected current style
+                            else if (!string.IsNullOrEmpty(familyData.CurrentSelectedStyle) && 
+                                     familyData.CurrentSelectedStyle != "Select Style..." &&
+                                     familyData.CurrentSelectedStyle != "No Label")
+                            {
+                                foreach (var part in familyData.Parts)
+                                {
+                                    // Modify the label style application to be more specific
+                                    if (familyData.CurrentStyles.Contains(familyData.CurrentSelectedStyle))
                                     {
-                                        var familyData = _partFamilies.FirstOrDefault(pf => pf.Name == pipe.PartFamilyName && pf.IsPipe);
-                                        if (familyData != null && !string.IsNullOrEmpty(familyData.SelectedLabelStyle))
-                                        {
-                                            _labelStyleManager.ApplyLabelStyle(pipe, familyData.SelectedLabelStyle);
-                                            labelCount++;
-                                            Logger.Log($"Applied style {familyData.SelectedLabelStyle} to pipe of family {familyData.Name}");
-                                        }
+                                        // Use a custom method to replace only the specific label style
+                                        _labelStyleManager.ReplaceSpecificLabelStyle(part, 
+                                            familyData.CurrentSelectedStyle, 
+                                            familyData.SelectedLabelStyle);
+                                        updatedCount++;
                                     }
                                 }
                             }
                         }
-
-                        // Process structures
-                        var structureIds = network.GetStructureIds();
-                        if (structureIds != null)
-                        {
-                            foreach (ObjectId structureId in structureIds)
-                            {
-                                if (!structureId.IsNull && !structureId.IsErased)
-                                {
-                                    var structure = tr.GetObject(structureId, OpenMode.ForWrite) as Structure;
-                                    if (structure != null)
-                                    {
-                                        var familyData = _partFamilies.FirstOrDefault(pf => pf.Name == structure.PartFamilyName && !pf.IsPipe);
-                                        if (familyData != null && !string.IsNullOrEmpty(familyData.SelectedLabelStyle))
-                                        {
-                                            _labelStyleManager.ApplyLabelStyle(structure, familyData.SelectedLabelStyle);
-                                            labelCount++;
-                                            Logger.Log($"Applied style {familyData.SelectedLabelStyle} to structure of family {familyData.Name}");
-                                        }
-                                    }
-                                }
-                            }
-                        }
-
-                        tr.Commit();
-                        Logger.Log($"Successfully applied {labelCount} labels");
-                        MessageBox.Show($"Successfully applied label styles to {labelCount} parts!", "Success", MessageBoxButton.OK, MessageBoxImage.Information);
-                    }
-                    catch (SystemException ex)
-                    {
-                        Logger.LogError("Error while applying label styles", ex);
-                        tr.Abort();
-                        MessageBox.Show($"Error applying label styles: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
                     }
                 }
+
+                if (totalSelected == 0)
+                {
+                    MessageBox.Show("Please select at least one part family to update.");
+                    return;
+                }
+
+                MessageBox.Show($"Updated {updatedCount} parts with new label styles.");
+                UpdateCurrentStyles();
             }
             catch (SystemException ex)
             {
                 Logger.LogError("Error in ApplyStyle_Click", ex);
-                MessageBox.Show($"Error: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                MessageBox.Show($"Error applying styles: {ex.Message}");
             }
         }
 
@@ -752,5 +997,24 @@ namespace NetworkLabeler
         {
             // Implementation for loading configuration
         }
+
+        private void UpdateCurrentStyles()
+        {
+            foreach (PartFamilyData familyData in _partFamilies)
+            {
+                familyData.CurrentStyles.Clear();
+                foreach (var part in familyData.Parts)
+                {
+                    string currentStyle = familyData.IsPipe 
+                        ? _labelStyleManager.GetCurrentLabelStyle(part as Pipe)
+                        : _labelStyleManager.GetCurrentLabelStyle(part as Structure);
+                    
+                    if (!string.IsNullOrEmpty(currentStyle))
+                    {
+                        familyData.AddCurrentStyle(currentStyle);
+                    }
+                }
+            }
+        }
     }
-} 
+}
